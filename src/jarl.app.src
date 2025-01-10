@@ -1,0 +1,26 @@
+{application, jarl, [
+    {description, "Just Another RPC Library"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        gun,
+        jsx
+    ]},
+    {env, []},
+    {modules, []},
+    {links, [
+      {"Changelog", "https://github.com/grisp/jarl/blob/main/CHANGELOG.md"},
+      {"GitHub", "https://github.com/grisp/jarl"}
+    ]},
+    {files, [
+      "LICENSE.md",
+      "README.md",
+      "rebar.*",
+      "include",
+      "src"
+    ]},
+    {licenses, ["Apache-2.0"]},
+    {links, []}
+ ]}.
