@@ -53,45 +53,38 @@
 
 -define(fmt(Fmt, Args), lists:flatten(io_lib:format(Fmt, Args))).
 -define(assertConnRequest(Conn, M, P, R), fun() ->
-    receive {conn, Conn, {request, M, P = Result, R}} -> Result
+    receive {jarl, Conn, {request, M, P = Result, R}} -> Result
     after 1000 ->
-        ?assert(false, ?fmt("The client connection did not receive request ~s ~s ~s",
-                            [??M, ??P, ??P]))
+        ?assert(false, ?fmt("The client connection did not receive request ~s ~s ~s; Mailbox: ~p",
+                            [??M, ??P, ??P, flush()]))
     end
 end()).
 -define(assertConnNotification(Conn, M, P), fun() ->
-    receive {conn, Conn, {notification, M, P = Result}} -> Result
+    receive {jarl, Conn, {notification, M, P = Result}} -> Result
     after 1000 ->
-        ?assert(false, ?fmt("The client did not receive notification ~s ~s",
-                            [??M, ??P]))
+        ?assert(false, ?fmt("The client did not receive notification ~s ~s; Mailbox: ~p",
+                            [??M, ??P, flush()]))
     end
 end()).
--define(assertConnResponse(Conn, V, X), fun() ->
-    receive {conn, Conn, {response, V = Result, X}} -> Result
+-define(assertConnResultResp(Conn, V, X), fun() ->
+    receive {jarl, Conn, {response, V = Result, X}} -> Result
     after 1000 ->
-        ?assert(false, ?fmt("The client connection did not receive response ~s ~s",
-                            [??V, ??X]))
+        ?assert(false, ?fmt("The client connection did not receive result response ~s ~s; Mailbox: ~p",
+                            [??V, ??X, flush()]))
     end
 end()).
--define(assertConnRemoteError(Conn, C, M, D, X), fun() ->
-    receive {conn, Conn, {remote_error, C, M, D, X}} -> ok
+-define(assertConnErrorResp(Conn, C, M, D, X), fun() ->
+    receive {jarl, Conn, {error, C, M, D, X}} -> ok
     after 1000 ->
-        ?assert(false, ?fmt("The client connection did not receive remote error ~s ~s ~s ~s",
-                            [??C, ??M, ??D, ??X]))
+        ?assert(false, ?fmt("The client connection did not receive error response ~s ~s ~s ~s; Mailbox: ~p",
+                            [??C, ??M, ??D, ??X, flush()]))
     end
 end()).
--define(assertConnRemoteError(Conn, C, M, D), fun() ->
-    receive {conn, Conn, {remote_error, C, M, D}} -> ok
+-define(assertConnJarlError(Conn, R, X), fun() ->
+    receive {jarl, Conn, {jarl_error, R, X}} -> ok
     after 1000 ->
-        ?assert(false, ?fmt("The client connection did not receive remote error ~s ~s ~s",
-                            [??C, ??M, ??D]))
-    end
-end()).
--define(assertConnLocalError(Conn, R, X), fun() ->
-    receive {conn, Conn, {local_error, R, X}} -> ok
-    after 1000 ->
-        ?assert(false, ?fmt("The client connection did not receive local error ~s ~s",
-                            [??R, ??X]))
+        ?assert(false, ?fmt("The client connection did not receive jarl error ~s ~s; Mailbox: ~p",
+                            [??R, ??X, flush()]))
     end
 end()).
 
@@ -156,15 +149,15 @@ basic_server_request_test(Config) ->
     ?receiveResult(<<"spam">>, 1),
     send_jsonrpc_request(<<"foo.bar.tata">>, #{}, 2),
     ?assertConnRequest(Conn, [foo, bar, tata], _, 2),
-    jarl_connection:error(Conn, error1, undefined, undefined, 2),
+    jarl_connection:reply(Conn, error1, undefined, undefined, 2),
     ?receiveError(-1, <<"Error Number 1">>, 2),
     send_jsonrpc_request(<<"foo.bar.toto">>, #{}, 3),
     ?assertConnRequest(Conn, [foo, bar, toto], _, 3),
-    jarl_connection:error(Conn, error2, <<"Custom">>, undefined, 3),
+    jarl_connection:reply(Conn, error2, <<"Custom">>, undefined, 3),
     ?receiveError(-2, <<"Custom">>, 3),
     send_jsonrpc_request(<<"foo.bar.titi">>, #{}, 4),
     ?assertConnRequest(Conn, [foo, bar, titi], _, 4),
-    jarl_connection:error(Conn, -42, <<"Message">>, undefined, 4),
+    jarl_connection:reply(Conn, -42, <<"Message">>, undefined, 4),
     ?receiveError(-42, <<"Message">>, 4),
     ok.
 
@@ -177,43 +170,35 @@ basic_client_synchronous_request_test(Config) ->
     Async2 = async_eval(fun() -> jarl_connection:request(Conn, tata, #{}) end),
     Id2 = ?receiveRequest(<<"tata">>, _),
     send_jsonrpc_error(-1, null, Id2),
-    ?assertEqual({remote_error, error1, <<"Error Number 1">>, undefined}, async_get_result(Async2)),
+    ?assertEqual({error, error1, <<"Error Number 1">>, undefined}, async_get_result(Async2)),
     Async3 = async_eval(fun() -> jarl_connection:request(Conn, titi, #{}) end),
     Id3 = ?receiveRequest(<<"titi">>, _),
     send_jsonrpc_error(-2, <<"Custom">>, Id3),
-    ?assertEqual({remote_error, error2, <<"Custom">>, undefined}, async_get_result(Async3)),
+    ?assertEqual({error, error2, <<"Custom">>, undefined}, async_get_result(Async3)),
     ok.
 
 basic_client_asynchronous_request_test(Config) ->
     Conn = proplists:get_value(conn, Config),
-    jarl_connection:post(Conn, toto, #{}, ctx1),
+    jarl_connection:request(Conn, toto, #{}, ctx1),
     Id1 = ?receiveRequest(<<"toto">>, _),
     send_jsonrpc_result(<<"spam">>, Id1),
-    ?assertConnResponse(Conn, <<"spam">>, ctx1),
-    jarl_connection:post(Conn, tata, #{}, ctx2),
+    ?assertConnResultResp(Conn, <<"spam">>, ctx1),
+    jarl_connection:request(Conn, tata, #{}, ctx2),
     Id2 = ?receiveRequest(<<"tata">>, _),
     send_jsonrpc_error(-1, null, Id2),
-    ?assertConnRemoteError(Conn, error1, <<"Error Number 1">>, undefined, ctx2),
-    jarl_connection:post(Conn, titi, #{}, ctx3),
+    ?assertConnErrorResp(Conn, error1, <<"Error Number 1">>, undefined, ctx2),
+    jarl_connection:request(Conn, titi, #{}, ctx3),
     Id3 = ?receiveRequest(<<"titi">>, _),
     send_jsonrpc_error(-2, <<"Custom">>, Id3),
-    ?assertConnRemoteError(Conn, error2, <<"Custom">>, undefined, ctx3),
-    ok.
-
-basic_error_test(Config) ->
-    Conn = proplists:get_value(conn, Config),
-    jarl_connection:error(Conn, -1, undefined, undefined, undefined),
-    ?receiveError(-1, <<"Error Number 1">>, null),
-    send_jsonrpc_error(-2, null, null),
-    ?assertConnRemoteError(Conn, error2, <<"Error Number 2">>, undefined),
+    ?assertConnErrorResp(Conn, error2, <<"Custom">>, undefined, ctx3),
     ok.
 
 request_timeout_test(Config) ->
     Conn = proplists:get_value(conn, Config),
-    jarl_connection:post(Conn, toto, #{}, ctx1),
+    jarl_connection:request(Conn, toto, #{}, ctx1),
     _Id1 = ?receiveRequest(<<"toto">>, _),
     timer:sleep(500),
-    ?assertConnLocalError(Conn, timeout, ctx1),
+    ?assertConnJarlError(Conn, timeout, ctx1),
     ok.
 
 spec_example_test(Config) ->
@@ -275,7 +260,7 @@ connect(Opts) ->
     ConnOpts = maps:merge(DefaultOpts, Opts),
     {ok, Conn} = jarl_connection:start_link(self(), ConnOpts),
     receive
-        {conn, Conn, connected} ->
+        {jarl, Conn, connected} ->
             jarl_test_server:listen(),
             Conn
     after
@@ -290,26 +275,27 @@ disconnect(Conn) ->
 
 example_handler(Conn) ->
     receive
-        {conn, Conn, {request, [subtract], [A, B], ReqRef}} ->
+        {jarl, Conn, {request, [subtract], [A, B], ReqRef}} ->
             jarl_connection:reply(Conn, A - B, ReqRef),
             example_handler(Conn);
-        {conn, Conn, {request, [subtract], #{minuend := A, subtrahend := B}, ReqRef}} ->
+        {jarl, Conn, {request, [subtract], #{minuend := A, subtrahend := B}, ReqRef}} ->
             jarl_connection:reply(Conn, A - B, ReqRef),
             example_handler(Conn);
-        {conn, Conn, {request, [sum], Values, ReqRef}} ->
+        {jarl, Conn, {request, [sum], Values, ReqRef}} ->
             Result = lists:foldl(fun(V, Acc) -> V + Acc end, 0, Values),
             jarl_connection:reply(Conn, Result, ReqRef),
             example_handler(Conn);
-        {conn, Conn, {request, [get_data], _, ReqRef}} ->
+        {jarl, Conn, {request, [get_data], _, ReqRef}} ->
             jarl_connection:reply(Conn, [<<"hello">>, 5], ReqRef),
             example_handler(Conn);
-        {conn, Conn, {request, _M, _P, ReqRef}} ->
-            jarl_connection:error(Conn, method_not_found, undefined, undefined, ReqRef),
+        {jarl, Conn, {request, _M, _P, ReqRef}} ->
+            jarl_connection:reply(Conn, method_not_found, undefined, undefined, ReqRef),
             example_handler(Conn);
-        {conn, Conn, {notification, _M, _P}} ->
+        {jarl, Conn, {notification, _M, _P}} ->
             example_handler(Conn);
-        % {conn, Conn, {response, R, Ctx :: term()}}
-        {conn, Conn, {remote_error, _C, _M, _D}} ->
+        {jarl, Conn, {error, _C, _M, _D, _X}} ->
+            example_handler(Conn);
+        {jarl, Conn, {jarl_error, _R, _X}} ->
             example_handler(Conn)
     after
         100 -> ok

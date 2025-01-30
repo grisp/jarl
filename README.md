@@ -1,7 +1,7 @@
 jarl
-=====
+====
 
-Just Another RPC Library
+Just Another JSON-RPC Library
 
 Build
 -----
