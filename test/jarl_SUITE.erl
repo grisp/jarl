@@ -1,4 +1,4 @@
--module(jarl_connection_SUITE).
+-module(jarl_SUITE).
 
 -behaviour(ct_suite).
 -include_lib("common_test/include/ct.hrl").
@@ -133,11 +133,11 @@ basic_server_notifications_test(Config) ->
 
 basic_client_notifications_test(Config) ->
     Conn = proplists:get_value(conn, Config),
-    jarl_connection:notify(Conn, ping, #{foo => undefined}),
+    jarl:notify(Conn, ping, #{foo => undefined}),
     ?receiveNotification(<<"ping">>, #{foo := null}),
-    jarl_connection:notify(Conn, [foo, bar, ping], #{}),
+    jarl:notify(Conn, [foo, bar, ping], #{}),
     ?receiveNotification(<<"foo.bar.ping">>, _),
-    jarl_connection:notify(Conn, [foo, bar, <<"NotAnAtom">>], #{}),
+    jarl:notify(Conn, [foo, bar, <<"NotAnAtom">>], #{}),
     ?receiveNotification(<<"foo.bar.NotAnAtom">>, _),
     ok.
 
@@ -145,33 +145,33 @@ basic_server_request_test(Config) ->
     Conn = proplists:get_value(conn, Config),
     send_jsonrpc_request(<<"toto">>, #{}, 1),
     ?assertConnRequest(Conn, [toto], _, 1),
-    jarl_connection:reply(Conn, <<"spam">>, 1),
+    jarl:reply(Conn, <<"spam">>, 1),
     ?receiveResult(<<"spam">>, 1),
     send_jsonrpc_request(<<"foo.bar.tata">>, #{}, 2),
     ?assertConnRequest(Conn, [foo, bar, tata], _, 2),
-    jarl_connection:reply(Conn, error1, undefined, undefined, 2),
+    jarl:reply(Conn, error1, undefined, undefined, 2),
     ?receiveError(-1, <<"Error Number 1">>, 2),
     send_jsonrpc_request(<<"foo.bar.toto">>, #{}, 3),
     ?assertConnRequest(Conn, [foo, bar, toto], _, 3),
-    jarl_connection:reply(Conn, error2, <<"Custom">>, undefined, 3),
+    jarl:reply(Conn, error2, <<"Custom">>, undefined, 3),
     ?receiveError(-2, <<"Custom">>, 3),
     send_jsonrpc_request(<<"foo.bar.titi">>, #{}, 4),
     ?assertConnRequest(Conn, [foo, bar, titi], _, 4),
-    jarl_connection:reply(Conn, -42, <<"Message">>, undefined, 4),
+    jarl:reply(Conn, -42, <<"Message">>, undefined, 4),
     ?receiveError(-42, <<"Message">>, 4),
     ok.
 
 basic_client_synchronous_request_test(Config) ->
     Conn = proplists:get_value(conn, Config),
-    Async1 = async_eval(fun() -> jarl_connection:request(Conn, [toto], #{}) end),
+    Async1 = async_eval(fun() -> jarl:request(Conn, [toto], #{}) end),
     Id1 = ?receiveRequest(<<"toto">>, _),
     send_jsonrpc_result(<<"spam">>, Id1),
     ?assertEqual({ok, <<"spam">>}, async_get_result(Async1)),
-    Async2 = async_eval(fun() -> jarl_connection:request(Conn, tata, #{}) end),
+    Async2 = async_eval(fun() -> jarl:request(Conn, tata, #{}) end),
     Id2 = ?receiveRequest(<<"tata">>, _),
     send_jsonrpc_error(-1, null, Id2),
     ?assertEqual({error, error1, <<"Error Number 1">>, undefined}, async_get_result(Async2)),
-    Async3 = async_eval(fun() -> jarl_connection:request(Conn, titi, #{}) end),
+    Async3 = async_eval(fun() -> jarl:request(Conn, titi, #{}) end),
     Id3 = ?receiveRequest(<<"titi">>, _),
     send_jsonrpc_error(-2, <<"Custom">>, Id3),
     ?assertEqual({error, error2, <<"Custom">>, undefined}, async_get_result(Async3)),
@@ -179,15 +179,15 @@ basic_client_synchronous_request_test(Config) ->
 
 basic_client_asynchronous_request_test(Config) ->
     Conn = proplists:get_value(conn, Config),
-    jarl_connection:request(Conn, toto, #{}, ctx1),
+    jarl:request(Conn, toto, #{}, ctx1),
     Id1 = ?receiveRequest(<<"toto">>, _),
     send_jsonrpc_result(<<"spam">>, Id1),
     ?assertConnResultResp(Conn, <<"spam">>, ctx1),
-    jarl_connection:request(Conn, tata, #{}, ctx2),
+    jarl:request(Conn, tata, #{}, ctx2),
     Id2 = ?receiveRequest(<<"tata">>, _),
     send_jsonrpc_error(-1, null, Id2),
     ?assertConnErrorResp(Conn, error1, <<"Error Number 1">>, undefined, ctx2),
-    jarl_connection:request(Conn, titi, #{}, ctx3),
+    jarl:request(Conn, titi, #{}, ctx3),
     Id3 = ?receiveRequest(<<"titi">>, _),
     send_jsonrpc_error(-2, <<"Custom">>, Id3),
     ?assertConnErrorResp(Conn, error2, <<"Custom">>, undefined, ctx3),
@@ -195,7 +195,7 @@ basic_client_asynchronous_request_test(Config) ->
 
 request_timeout_test(Config) ->
     Conn = proplists:get_value(conn, Config),
-    jarl_connection:request(Conn, toto, #{}, ctx1),
+    jarl:request(Conn, toto, #{}, ctx1),
     _Id1 = ?receiveRequest(<<"toto">>, _),
     timer:sleep(500),
     ?assertConnJarlError(Conn, timeout, ctx1),
@@ -258,7 +258,7 @@ connect(Opts) ->
                         {error2, -2, <<"Error Number 2">>}
                     ]},
     ConnOpts = maps:merge(DefaultOpts, Opts),
-    {ok, Conn} = jarl_connection:start_link(self(), ConnOpts),
+    {ok, Conn} = jarl:start_link(self(), ConnOpts),
     receive
         {jarl, Conn, connected} ->
             jarl_test_server:listen(),
@@ -270,26 +270,26 @@ connect(Opts) ->
 
 disconnect(Conn) ->
     unlink(Conn),
-    jarl_connection:disconnect(Conn),
+    jarl:disconnect(Conn),
     ok.
 
 example_handler(Conn) ->
     receive
         {jarl, Conn, {request, [subtract], [A, B], ReqRef}} ->
-            jarl_connection:reply(Conn, A - B, ReqRef),
+            jarl:reply(Conn, A - B, ReqRef),
             example_handler(Conn);
         {jarl, Conn, {request, [subtract], #{minuend := A, subtrahend := B}, ReqRef}} ->
-            jarl_connection:reply(Conn, A - B, ReqRef),
+            jarl:reply(Conn, A - B, ReqRef),
             example_handler(Conn);
         {jarl, Conn, {request, [sum], Values, ReqRef}} ->
             Result = lists:foldl(fun(V, Acc) -> V + Acc end, 0, Values),
-            jarl_connection:reply(Conn, Result, ReqRef),
+            jarl:reply(Conn, Result, ReqRef),
             example_handler(Conn);
         {jarl, Conn, {request, [get_data], _, ReqRef}} ->
-            jarl_connection:reply(Conn, [<<"hello">>, 5], ReqRef),
+            jarl:reply(Conn, [<<"hello">>, 5], ReqRef),
             example_handler(Conn);
         {jarl, Conn, {request, _M, _P, ReqRef}} ->
-            jarl_connection:reply(Conn, method_not_found, undefined, undefined, ReqRef),
+            jarl:reply(Conn, method_not_found, undefined, undefined, ReqRef),
             example_handler(Conn);
         {jarl, Conn, {notification, _M, _P}} ->
             example_handler(Conn);
