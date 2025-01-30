@@ -7,9 +7,9 @@
 %--- Exports -------------------------------------------------------------------
 
 % API functions
--export([start/1]).
+-export([start/1, start/2]).
 -export([stop/1]).
--export([start_cowboy/1]).
+-export([start_cowboy/2]).
 -export([stop_cowboy/0]).
 -export([close_websocket/0]).
 -export([listen/0]).
@@ -40,8 +40,11 @@
 % call this in `init_per_suite'.
 % Returns the started apps
 start(Path) ->
+    start(Path, #{}).
+
+start(Path, ServerOpts) ->
     {ok, Apps} = application:ensure_all_started(cowboy),
-    start_cowboy(Path),
+    start_cowboy(Path, ServerOpts),
     Apps.
 
 stop(Apps) ->
@@ -53,9 +56,9 @@ stop(Apps) ->
 
 % Start the cowboy listener.
 % You have to make sure cowboy is running before.
-start_cowboy(Path) ->
+start_cowboy(Path, ServerOpts) ->
     Dispatch = cowboy_router:compile(
-        [{'_', [{Path, jarl_test_server, []}]}]),
+        [{'_', [{Path, jarl_test_server, ServerOpts}]}]),
     {ok, _} = cowboy:start_clear(server_listener, [{port, 3030}],
                                  #{env => #{dispatch => Dispatch}}).
 
@@ -180,17 +183,18 @@ wait_disconnection() ->
 
 %--- Websocket Callbacks -------------------------------------------------------
 
-init(Req, State) ->
+init(Req, Opts) ->
     case cowboy_req:header(<<"test-delay-upgrade">>, Req) of
         undefined -> ok;
         Value ->
             Delay = binary_to_integer(Value),
             timer:sleep(Delay)
     end,
-    {cowboy_websocket, Req, State}.
+    {cowboy_websocket, Req, Opts}.
 
-websocket_init(_X) ->
+websocket_init(State) ->
     register(?MODULE, self()),
+    schedule_ping(State),
     {[], []}.
 
 websocket_handle({text, Msg}, State) ->
@@ -204,6 +208,9 @@ websocket_handle(Frame, State) ->
 websocket_info({listen, Pid}, State) ->
     Pid ! ok,
     {[], [Pid | State]};
+websocket_info(send_ping, State) ->
+    schedule_ping(State),
+    {[ping], State};
 websocket_info({send_text, Msg}, State) ->
     {[{text, Msg}], State};
 websocket_info(close_websocket, State) ->
@@ -211,3 +218,8 @@ websocket_info(close_websocket, State) ->
 websocket_info(Info, State) ->
     ct:pal("Ignore websocket info:~n~p", [Info]),
     {[], State}.
+
+schedule_ping(#{ping_interval := Interval}) ->
+    erlang:send_after(Interval, ?MODULE, send_ping);
+schedule_ping(_) ->
+    ok.

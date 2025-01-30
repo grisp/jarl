@@ -101,7 +101,7 @@ all() ->
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(gun),
-    Apps = jarl_test_server:start("/jarl/ws"),
+    Apps = jarl_test_server:start("/jarl/ws", #{ping_interval => 100}),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -109,7 +109,8 @@ end_per_suite(Config) ->
 
 init_per_testcase(TestCase, Config)
   when TestCase =:= connection_error_test;
-       TestCase =:= call_while_connecting_test ->
+       TestCase =:= call_while_connecting_test;
+       TestCase =:= ping_timeout_test ->
     Config;
 init_per_testcase(_TestCase, Config) ->
     Conn = connect(),
@@ -117,7 +118,8 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(TestCase, Config)
   when TestCase =:= connection_error_test;
-       TestCase =:= call_while_connecting_test ->
+       TestCase =:= call_while_connecting_test;
+       TestCase =:= ping_timeout_test ->
     ?assertEqual([], flush()),
     Config;
 end_per_testcase(_TestCase, Config) ->
@@ -287,6 +289,16 @@ connection_error_test(_Config) ->
     receive {'EXIT', Conn, _} -> ok after 1000 -> ?assert(false, "Connection did not crash") end,
     ok.
 
+ping_timeout_test(_Config) ->
+    process_flag(trap_exit, true), % To not die because the connection crashes
+    {ok, Conn} = jarl:start_link(self(), connect_options(#{ping_timeout => 50})),
+    receive {jarl, Conn, connected} -> jarl_test_server:listen() end,
+    jarl:request(Conn, foo, #{}, some_ctx),
+    _ = ?receiveRequest(<<"foo">>, _),
+    receive {'EXIT', Conn, _} -> ok after 1000 -> ?assert(false, "Connection did not crash") end,
+    % A message for the asynchronous request must be sent
+    ?assertConnJarlError(Conn, closed, some_ctx),
+    ok.
 
 %--- Internal Functions --------------------------------------------------------
 
