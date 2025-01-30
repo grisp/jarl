@@ -21,7 +21,6 @@
 % Behaviour gen_statem callback functions
 -export([callback_mode/0]).
 -export([init/1]).
--export([code_change/4]).
 -export([terminate/3]).
 
 % Data Functions
@@ -57,6 +56,7 @@
     domain :: binary(),
     port :: inet:port_number(),
     path :: binary(),
+    headers :: [{binary(), iodata()}],
     ping_timeout :: infinity | pos_integer(),
     request_timeout :: infinity | pos_integer(),
     batches = #{} :: #{reference() => #batch{}},
@@ -142,7 +142,7 @@ request(Conn, Method, Params) ->
 request(Conn, Method, Params, ReqCtx) ->
     try gen_statem:call(Conn, {request, parse_method(Method), Params, ReqCtx}) of
         {ok, CallResult} -> CallResult;
-        {error, _Reason} = Error -> Error;
+        {jarl_error, _Reason} = Error -> Error;
         {exception, Class, Reason, Stack} -> erlang:raise(Class, Reason, Stack)
     catch
         exit:{noproc, _} -> {jarl_error, not_connected}
@@ -153,7 +153,7 @@ request(Conn, Method, Params, ReqCtx) ->
 notify(Conn, Method, Params) ->
     try gen_statem:call(Conn, {notify, parse_method(Method), Params}) of
         {ok, CallResult} -> CallResult;
-        {error, _Reason} = Error -> Error;
+        {jarl_error, _Reason} = Error -> Error;
         {exception, Class, Reason, Stack} -> erlang:raise(Class, Reason, Stack)
     catch
         exit:{noproc, _} -> {jarl_error, not_connected}
@@ -165,7 +165,7 @@ reply(Conn, Result, ReqRef)
   when is_integer(ReqRef); is_binary(ReqRef) ->
     try gen_statem:call(Conn, {reply, Result, ReqRef}) of
         {ok, CallResult} -> CallResult;
-        {error, _Reason} = Error -> Error;
+        {jarl_error, _Reason} = Error -> Error;
         {exception, Class, Reason, Stack} -> erlang:raise(Class, Reason, Stack)
     catch
         exit:{noproc, _} -> {jarl_error, not_connected}
@@ -179,7 +179,7 @@ reply(Conn, Code, Message, ErData, ReqRef)
   when is_integer(ReqRef); is_binary(ReqRef) ->
     try gen_statem:call(Conn, {reply, Code, Message, ErData, ReqRef}) of
         {ok, CallResult} -> CallResult;
-        {error, _Reason} = Error -> Error;
+        {jarl_error, _Reason} = Error -> Error;
         {exception, Class, Reason, Stack} -> erlang:raise(Class, Reason, Stack)
     catch
         exit:{noproc, _} -> {jarl_error, not_connected}
@@ -203,12 +203,14 @@ init([Handler, Opts]) ->
     PingTimeout = maps:get(ping_timeout, Opts, ?DEFAULT_PING_TIMEOUT),
     ReqTimeout = maps:get(request_timeout, Opts, ?DEFAULT_REQUEST_TIMEOUT),
     Transport = maps:get(transport, Opts, ?DEFAULT_TRANSPORT),
+    Headers = maps:get(headers, Opts, []),
     Data = #data{
         handler = Handler,
         uri = format_ws_uri(Transport, Domain, Port, Path),
         domain = as_bin(Domain),
         port = Port,
         path = as_bin(Path),
+        headers = Headers,
         ping_timeout = PingTimeout,
         request_timeout = ReqTimeout
     },
@@ -219,9 +221,6 @@ init([Handler, Opts]) ->
         {error, Reason} -> {stop, Reason}
     end.
 
-code_change(_Vsn, State, Data, _Extra) ->
-    {ok, State, Data}.
-
 terminate(_Reason, _State, Data) ->
     connection_close(Data),
     persistent_term:erase({?MODULE, self(), tags}),
@@ -231,13 +230,13 @@ terminate(_Reason, _State, Data) ->
 
 %--- Behaviour gen_statem State Callback Functions -----------------------------
 
-connecting({call, From}, {sync_request, Method, _Params}, _Data) ->
+connecting({call, From}, {request, Method, _Params}, _Data) ->
     ?JARL_INFO("Request ~s performed while connecting",
                [format_method(Method)],
                #{event => rpc_request_error, method => Method,
                  reason => not_connected}),
     {keep_state_and_data, [{reply, From, {jarl_error, not_connected}}]};
-connecting({call, From}, {post, Method, _Params, ReqCtx},
+connecting({call, From}, {request, Method, _Params, ReqCtx},
             #data{handler = Handler}) ->
     ?JARL_INFO("Request ~s initiated while connecting",
                [format_method(Method)],
@@ -275,7 +274,6 @@ connecting(info, {gun_upgrade, Pid, Stream, [<<"websocket">>], _},
     ?JARL_DEBUG("Connection to ~s upgraded to websocket", [Data#data.uri],
                 #{event => ws_upgraded, uri => Data#data.uri}),
     {next_state, connected, connection_established(Data)};
-
 connecting(info, {gun_response, Pid, Stream, _, Status, _Headers},
            Data = #data{gun_pid = Pid, ws_stream = Stream}) ->
     ?JARL_INFO("Connection to ~s failed to upgrade to websocket: ~p",
@@ -347,7 +345,7 @@ connected(info, {outbound_timeout, ReqRef}, Data) ->
 
 handle_common({call, From}, disconnect, _StateName, Data) ->
     try connection_close(Data) of
-        Data2 -> {keep_state, Data2, [{reply, From, {ok, ok}}]}
+        Data2 -> {stop_and_reply, Data2, [{reply, From, {ok, ok}}]}
     catch
         C:R:S -> {stop_and_reply, R, [{reply, From, {exception, C, R, S}}]}
     end;
@@ -549,8 +547,9 @@ connection_start(Data = #data{uri = Uri, domain = Domain, port = Port},
             {error, Reason}
     end.
 
-connection_upgrade(Data = #data{path = Path, gun_pid = GunPid}) ->
-    WsStream = gun:ws_upgrade(GunPid, Path,[], #{silence_pings => false}),
+connection_upgrade(Data = #data{path = Path, headers = Headers,
+                                gun_pid = GunPid}) ->
+    WsStream = gun:ws_upgrade(GunPid, Path, Headers, #{silence_pings => false}),
     Data#data{ws_stream = WsStream}.
 
 connection_established(Data = #data{handler = Handler}) ->

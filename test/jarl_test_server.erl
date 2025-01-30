@@ -181,9 +181,15 @@ wait_disconnection() ->
 %--- Websocket Callbacks -------------------------------------------------------
 
 init(Req, State) ->
+    case cowboy_req:header(<<"test-delay-upgrade">>, Req) of
+        undefined -> ok;
+        Value ->
+            Delay = binary_to_integer(Value),
+            timer:sleep(Delay)
+    end,
     {cowboy_websocket, Req, State}.
 
-websocket_init(_) ->
+websocket_init(_X) ->
     register(?MODULE, self()),
     {[], []}.
 

@@ -107,10 +107,19 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     jarl_test_server:stop(?config(apps, Config)).
 
+init_per_testcase(TestCase, Config)
+  when TestCase =:= connection_error_test;
+       TestCase =:= call_while_connecting_test ->
+    Config;
 init_per_testcase(_TestCase, Config) ->
     Conn = connect(),
     [{conn, Conn} | Config].
 
+end_per_testcase(TestCase, Config)
+  when TestCase =:= connection_error_test;
+       TestCase =:= call_while_connecting_test ->
+    ?assertEqual([], flush()),
+    Config;
 end_per_testcase(_TestCase, Config) ->
     Conn = proplists:get_value(conn, Config),
     disconnect(Conn),
@@ -243,13 +252,45 @@ spec_example_test(Config) ->
 
     ok.
 
+calls_after_disconnection_test(Config) ->
+    Conn = proplists:get_value(conn, Config),
+    disconnect(Conn),
+    ?assertMatch({jarl_error, not_connected}, jarl:request(Conn, foo, undefined)),
+    ?assertMatch({jarl_error, not_connected}, jarl:request(Conn, foo, undefined, undefined)),
+    ?assertMatch({jarl_error, not_connected}, jarl:notify(Conn, foo, undefined)),
+    ?assertMatch({jarl_error, not_connected}, jarl:reply(Conn, undefined, 42)),
+    ?assertMatch({jarl_error, not_connected}, jarl:reply(Conn, internal_error, undefined, undefined, 42)),
+    ?assertMatch(ok, jarl:disconnect(Conn)),
+    ok.
+
+call_while_connecting_test(_Config) ->
+    ConnOpts = connect_options(#{headers => [{<<"Test-Delay-Upgrade">>, <<"500">>}]}),
+    {ok, Conn} = jarl:start_link(self(), ConnOpts),
+    ?assertMatch({jarl_error, not_connected}, jarl:request(Conn, foo1, undefined)),
+    ?assertMatch({jarl_error, not_connected}, jarl:request(Conn, foo2, undefined, some_ctx)),
+    ?assertMatch({jarl_error, not_connected}, jarl:notify(Conn, foo3, undefined)),
+    ?assertMatch({jarl_error, not_connected}, jarl:reply(Conn, undefined, 42)),
+    ?assertMatch({jarl_error, not_connected}, jarl:reply(Conn, internal_error, undefined, undefined, 42)),
+    % A message for the asynchronous request must be sent
+    ?assertConnJarlError(Conn, not_connected, some_ctx),
+    disconnect(Conn),
+    ok.
+
+connection_error_test(_Config) ->
+    process_flag(trap_exit, true), % To not die because the connection crashes
+    % Test the connection is crashing right away
+    ?assertMatch({error, _}, jarl:start_link(self(), #{
+        domain => localhost, port => 3030, path => <<"/jarl/ws">>,
+        transport => {tls, bad}})),
+    % Test the connection cannot be established
+    {ok, Conn} = jarl:start_link(self(), connect_options(#{domain => dummy})),
+    receive {'EXIT', Conn, _} -> ok after 1000 -> ?assert(false, "Connection did not crash") end,
+    ok.
+
 
 %--- Internal Functions --------------------------------------------------------
 
-connect() ->
-    connect(#{}).
-
-connect(Opts) ->
+connect_options(Opts) ->
     DefaultOpts = #{domain => localhost, port => 3030, transport => tcp,
                     path => <<"/jarl/ws">>,
                     request_timeout => 300,
@@ -257,7 +298,13 @@ connect(Opts) ->
                         {error1, -1, <<"Error Number 1">>},
                         {error2, -2, <<"Error Number 2">>}
                     ]},
-    ConnOpts = maps:merge(DefaultOpts, Opts),
+    maps:merge(DefaultOpts, Opts).
+
+connect() ->
+    connect(#{}).
+
+connect(Opts) ->
+    ConnOpts = connect_options(Opts),
     {ok, Conn} = jarl:start_link(self(), ConnOpts),
     receive
         {jarl, Conn, connected} ->
@@ -270,8 +317,9 @@ connect(Opts) ->
 
 disconnect(Conn) ->
     unlink(Conn),
+    MonRef = erlang:monitor(process, Conn),
     jarl:disconnect(Conn),
-    ok.
+    receive {'DOWN', MonRef, process, Conn, _} -> ok end.
 
 example_handler(Conn) ->
     receive
