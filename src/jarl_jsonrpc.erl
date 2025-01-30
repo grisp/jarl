@@ -25,9 +25,6 @@
 -define(is_valid(Message),
     (map_get(jsonrpc, Message) == <<"2.0">>)
 ).
--define(is_method(Method),
-    (is_atom(Method) orelse is_binary(Method))
-).
 -define(is_params(Params),
     (is_map(Params) orelse is_list(Params))
 ).
@@ -88,39 +85,32 @@ encode(Message) ->
 
 %--- Internal ------------------------------------------------------------------
 
-as_bin(undefined) -> undefined;
-as_bin(Binary) when is_binary(Binary) -> Binary;
-as_bin(List) when is_list(List) -> list_to_binary(List).
-
-as_id(undefined) -> undefined;
-as_id(Integer) when is_integer(Integer) -> Integer;
-as_id(Binary) when is_binary(Binary) -> Binary;
-as_id(List) when is_list(List) -> list_to_binary(List).
-
 unpack(#{method := Method, params := Params, id := ID} = M)
-  when ?is_valid(M), ?is_method(Method), ?is_params(Params), ID =/= undefined ->
-    {request, as_bin(Method), Params, as_id(ID)};
+  when ?is_valid(M), is_binary(Method), ?is_params(Params), ?is_id(ID) ->
+    {request, Method, Params, ID};
 unpack(#{method := Method, id := ID} = M)
-  when ?is_valid(M), ?is_method(Method), ID =/= undefined ->
-    {request, as_bin(Method), undefined, as_id(ID)};
+  when ?is_valid(M), is_binary(Method), ?is_id(ID) ->
+    {request, Method, undefined, ID};
 unpack(#{method := Method, params := Params} = M)
-  when ?is_valid(M), ?is_method(Method), ?is_params(Params) ->
-    {notification, as_bin(Method), Params};
+  when ?is_valid(M), is_binary(Method), ?is_params(Params) ->
+    {notification, Method, Params};
 unpack(#{method := Method} = M)
-  when ?is_valid(M), ?is_method(Method) ->
-    {notification, as_bin(Method), undefined};
+  when ?is_valid(M), is_binary(Method) ->
+    {notification, Method, undefined};
 unpack(#{result := Result, id := ID} = M)
-  when ?is_valid(M) ->
-    {result, Result, as_id(ID)};
+  when ?is_valid(M), ?is_id(ID) ->
+    {result, Result, ID};
 unpack(#{error := #{code := Code, message := Message, data := Data},
          id := ID} = M)
-  when ?is_valid(M), is_integer(Code) ->
-    {error, Code, as_bin(Message), Data, as_id(ID)};
+  when ?is_valid(M), is_integer(Code), ?is_id(ID) orelse ID =:= undefined,
+       (is_binary(Message) orelse Message =:= undefined) ->
+    {error, Code, Message, Data, ID};
 unpack(#{error := #{code := Code, message := Message}, id := ID} = M)
-  when ?is_valid(M), is_integer(Code) ->
-    {error, Code, as_bin(Message), undefined, as_id(ID)};
+  when ?is_valid(M), is_integer(Code), ?is_id(ID) orelse ID =:= undefined,
+       (is_binary(Message) orelse Message =:= undefined) ->
+    {error, Code, Message, undefined, ID};
 unpack(#{id := ID}) ->
-    {decoding_error, -32600, <<"Invalid Request">>, undefined, as_id(ID)};
+    {decoding_error, -32600, <<"Invalid Request">>, undefined, ID};
 unpack(_M) ->
     {decoding_error, -32600, <<"Invalid Request">>, undefined, undefined}.
 
@@ -149,13 +139,10 @@ pack({ErrorTag, Code, Message, undefined, ID})
   when ErrorTag =:= error orelse ErrorTag =:= decoding_error, is_integer(Code),
        Message =:= undefined orelse is_binary(Message), ?is_id(ID) ->
     #{?V, error => #{code => Code, message => Message}, id => ID};
-pack({ErrorTag, Code, Message, Data, undefined})
-  when ErrorTag =:= error orelse ErrorTag =:= decoding_error, is_integer(Code),
-       Message =:= undefined orelse is_binary(Message) ->
-    #{?V, error => #{code => Code, message => Message, data => Data, id => null}};
 pack({ErrorTag, Code, Message, Data, ID})
   when ErrorTag =:= error orelse ErrorTag =:= decoding_error, is_integer(Code),
-       Message =:= undefined orelse is_binary(Message), ?is_id(ID) ->
+       Message =:= undefined orelse is_binary(Message), ?is_id(ID),
+       is_binary(Data) ->
     #{?V, error => #{code => Code, message => Message, data => Data}, id => ID};
 pack(Message) ->
     erlang:error({badarg, Message}).
