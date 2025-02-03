@@ -505,7 +505,7 @@ encode_error(Code, Message)
   when is_integer(Code), Message =:= undefined ->
     ErrorCodes = persistent_term:get({?MODULE, self(), codes}, #{}),
     case maps:find(Code, ErrorCodes) of
-        error -> {Code, null};
+        error -> {Code, undefined};
         {ok, {_Tag, DefaultMessage}} -> {Code, DefaultMessage}
     end;
 encode_error(Code, Message)
@@ -587,10 +587,7 @@ send_result(Data, Result, ReqRef) ->
 send_error(Data, Code, Message, ErData, ReqRef) ->
     {Code2, Message2} = encode_error(Code, Message),
     Msg = {error, Code2, Message2, ErData, ReqRef},
-    case ReqRef of
-        undefined -> send_packet(Data, Msg);
-        _ -> inbound_response(Data, Msg, ReqRef)
-    end.
+    inbound_response(Data, Msg, ReqRef).
 
 send_packet(Data = #data{gun_pid = GunPid, ws_stream = Stream}, Packet) ->
     Payload = jarl_jsonrpc:encode(Packet),
@@ -750,7 +747,7 @@ outbound_del(Data = #data{outbound = ReqMap}, ReqRef) ->
 outbound_timeout(Data = #data{handler = Handler}, ReqRef) ->
     case outbound_del(Data, ReqRef) of
         {error, not_found} ->
-            ?JARL_WARN("Timeout for unknown request ~s", [ReqRef],
+            ?JARL_WARN("Timeout for unknown request ~p", [ReqRef],
                        #{event => internal_error, ref => ReqRef,
                          reason => unknown_request}),
             Data;

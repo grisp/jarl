@@ -174,4 +174,6 @@ preprocess(Binary) when is_binary(Binary) -> Binary;
 preprocess(List) when is_list(List) ->
     [preprocess(E) || E <- List];
 preprocess(Map) when is_map(Map) ->
-    maps:map(fun(_K, V) -> preprocess(V) end, Map).
+    maps:map(fun(_K, V) -> preprocess(V) end, Map);
+preprocess(_Term) ->
+    erlang:error(badarg).

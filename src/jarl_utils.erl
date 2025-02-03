@@ -11,7 +11,8 @@
 
 as_bin(Binary) when is_binary(Binary) -> Binary;
 as_bin(List) when is_list(List) -> list_to_binary(List);
-as_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom).
+as_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom);
+as_bin(Integer) when is_integer(Integer) -> integer_to_binary(Integer).
 
 maybe_atom(Bin) when is_binary(Bin) ->
     try binary_to_existing_atom(Bin)

@@ -190,7 +190,12 @@ init(Req, Opts) ->
             Delay = binary_to_integer(Value),
             timer:sleep(Delay)
     end,
-    {cowboy_websocket, Req, Opts}.
+    case cowboy_req:header(<<"test-upgrade-error">>, Req) of
+        undefined ->
+            {cowboy_websocket, Req, Opts};
+        Reason ->
+            {stop, Reason}
+    end.
 
 websocket_init(State) ->
     register(?MODULE, self()),
