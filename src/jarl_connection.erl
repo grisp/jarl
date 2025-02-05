@@ -345,7 +345,7 @@ connected(info, {outbound_timeout, ReqRef}, Data) ->
 
 handle_common({call, From}, disconnect, _StateName, Data) ->
     try connection_close(Data) of
-        Data2 -> {stop_and_reply, Data2, [{reply, From, {ok, ok}}]}
+        _Data2 -> {stop_and_reply, normal, [{reply, From, {ok, ok}}]}
     catch
         C:R:S -> {stop_and_reply, R, [{reply, From, {exception, C, R, S}}]}
     end;
