@@ -320,7 +320,7 @@ connection_error_test(_Config) ->
 ping_timeout_test(_Config) ->
     process_flag(trap_exit, true), % To not die because the connection crashes
     {ok, Conn} = jarl:start_link(self(), connect_options(#{ping_timeout => 50})),
-    receive {jarl, Conn, connected} -> jarl_test_server:listen() end,
+    receive {jarl, Conn, {connected, _Headers}} -> jarl_test_server:listen() end,
     jarl:request(Conn, async_req, #{}, some_ctx),
     Async = async_eval(fun() -> jarl:request(Conn, [sync_req], #{}) end),
     _ = ?receiveRequest(<<"async_req">>, _),
@@ -452,7 +452,7 @@ connect(Opts) ->
     ConnOpts = connect_options(Opts),
     {ok, Conn} = jarl:start_link(self(), ConnOpts),
     receive
-        {jarl, Conn, connected} ->
+        {jarl, Conn, {connected, _Headers}} ->
             jarl_test_server:listen(),
             Conn
     after

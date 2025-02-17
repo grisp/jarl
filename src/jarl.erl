@@ -28,7 +28,7 @@
 % Type specification of the messages that are sent to the handler process:
 -type handler_messages() ::
     % Received when the client is connected and ready to handle requests:
-    {jarl, pid(), connected}
+    {jarl, pid(), {connected, Headers :: [{binary(), iodata()}]}}
     % Received when the JSON-RPC server sent a request:
   | {jarl, pid(), {request, method(), Params :: map() | list(), ReqRef :: binary() | integer()}}
     % Received when the JSON-RPC server sent a notification:

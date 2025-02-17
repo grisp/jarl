@@ -269,11 +269,11 @@ connecting(info, {gun_up, GunPid, _}, Data = #data{gun_pid = GunPid}) ->
                 [Data#data.uri],
                 #{event => ws_connection_enstablished, uri => Data#data.uri}),
     {keep_state, connection_upgrade(Data)};
-connecting(info, {gun_upgrade, Pid, Stream, [<<"websocket">>], _},
+connecting(info, {gun_upgrade, Pid, Stream, [<<"websocket">>], Headers},
            Data = #data{gun_pid = Pid, ws_stream = Stream}) ->
     ?JARL_DEBUG("Connection to ~s upgraded to websocket", [Data#data.uri],
                 #{event => ws_upgraded, uri => Data#data.uri}),
-    {next_state, connected, connection_established(Data)};
+    {next_state, connected, connection_established(Data, Headers)};
 connecting(info, {gun_response, Pid, Stream, _, Status, _Headers},
            Data = #data{gun_pid = Pid, ws_stream = Stream}) ->
     ?JARL_INFO("Connection to ~s failed to upgrade to websocket: ~p",
@@ -552,8 +552,8 @@ connection_upgrade(Data = #data{path = Path, headers = Headers,
     WsStream = gun:ws_upgrade(GunPid, Path, Headers, #{silence_pings => false}),
     Data#data{ws_stream = WsStream}.
 
-connection_established(Data = #data{handler = Handler}) ->
-    Handler ! {jarl, self(), connected},
+connection_established(Data = #data{handler = Handler}, Headers) ->
+    Handler ! {jarl, self(), {connected, Headers}},
     schedule_ping_timeout(Data).
 
 connection_close(Data = #data{gun_pid = GunPid, gun_ref = GunRef})
