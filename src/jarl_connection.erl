@@ -57,6 +57,7 @@
     port :: inet:port_number(),
     path :: binary(),
     headers :: [{binary(), iodata()}],
+    protocols :: [binary()],
     ping_timeout :: infinity | pos_integer(),
     request_timeout :: infinity | pos_integer(),
     batches = #{} :: #{reference() => #batch{}},
@@ -204,6 +205,7 @@ init([Handler, Opts]) ->
     ReqTimeout = maps:get(request_timeout, Opts, ?DEFAULT_REQUEST_TIMEOUT),
     Transport = maps:get(transport, Opts, ?DEFAULT_TRANSPORT),
     Headers = maps:get(headers, Opts, []),
+    Protocols = maps:get(protocols, Opts, []),
     Data = #data{
         handler = Handler,
         uri = format_ws_uri(Transport, Domain, Port, Path),
@@ -211,6 +213,7 @@ init([Handler, Opts]) ->
         port = Port,
         path = as_bin(Path),
         headers = Headers,
+        protocols = Protocols,
         ping_timeout = PingTimeout,
         request_timeout = ReqTimeout
     },
@@ -526,14 +529,21 @@ encode_error(Tag, Message)
         {ok, {Code, _DefaultMessage}} -> {Code, Message}
     end.
 
-connection_start(Data = #data{uri = Uri, domain = Domain, port = Port},
+connection_start(Data = #data{uri = Uri, domain = Domain, port = Port,
+                              protocols = Protocols},
                  TransportSpec) ->
+    BaseWsOpts = #{silence_pings => false},
     BaseGunOpts = #{protocols => [http], retry => 0},
-    GunOpts = case TransportSpec of
+    TransGunOpts = case TransportSpec of
         tcp -> BaseGunOpts#{transport => tcp};
         tls -> BaseGunOpts#{transport => tls};
         {tls, Opts} -> BaseGunOpts#{transport => tls, tls_opts => Opts}
     end,
+    WsOpts = case Protocols of
+        [] -> BaseWsOpts;
+        [_|_] = Ps -> BaseWsOpts#{protocols => [{P, gun_ws_h} || P <- Ps]}
+    end,
+    GunOpts = TransGunOpts#{ws_opts => WsOpts},
     ?JARL_DEBUG("Connecting to ~s", [Uri],
                 #{event => connecting, uri => Uri, options => GunOpts}),
     case gun:open(binary_to_list(Domain), Port, GunOpts) of
@@ -549,7 +559,7 @@ connection_start(Data = #data{uri = Uri, domain = Domain, port = Port},
 
 connection_upgrade(Data = #data{path = Path, headers = Headers,
                                 gun_pid = GunPid}) ->
-    WsStream = gun:ws_upgrade(GunPid, Path, Headers, #{silence_pings => false}),
+    WsStream = gun:ws_upgrade(GunPid, Path, Headers),
     Data#data{ws_stream = WsStream}.
 
 connection_established(Data = #data{handler = Handler}, Headers) ->

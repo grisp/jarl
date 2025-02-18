@@ -21,7 +21,8 @@
     errors => [error_mapping()],
     ping_timeout => infinity | pos_integer(),
     request_timeout => infinity | pos_integer(),
-    headers => [{binary(), iodata()}]
+    headers => [{binary(), iodata()}],
+    protocols => [binary()]
 }.
 -type jarl_error_reason() :: not_connected | timeout | closed.
 
