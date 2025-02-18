@@ -368,6 +368,12 @@ handle_common(info, {gun_ws, Pid, Stream, {close, Code, Message}}, StateName,
                #{event => ws_stream_closed, uri => Data#data.uri,
                  code => Code, reason => Message, state => StateName}),
     {stop, normal, connection_closed(Data, closed)};
+handle_common(info, {gun_error, Pid, _Stream, {closed, normal}}, StateName,
+              Data = #data{gun_pid = Pid}) ->
+    ?JARL_INFO("Connection to ~s got closed normaly", [Data#data.uri],
+               #{event => ws_closed, uri => Data#data.uri,
+                 state => StateName}),
+    {stop, normal, connection_close(Data)};
 handle_common(info, {gun_error, Pid, _Stream, Reason}, StateName,
               Data = #data{gun_pid = Pid}) ->
     ?JARL_INFO("Connection to ~s got an error: ~p",
