@@ -57,7 +57,7 @@
     port :: inet:port_number(),
     path :: binary(),
     headers :: [{binary(), iodata()}],
-    protocol :: undefined | binary(),
+    protocols :: [binary()],
     ping_timeout :: infinity | pos_integer(),
     request_timeout :: infinity | pos_integer(),
     batches = #{} :: #{reference() => #batch{}},
@@ -205,7 +205,7 @@ init([Handler, Opts]) ->
     ReqTimeout = maps:get(request_timeout, Opts, ?DEFAULT_REQUEST_TIMEOUT),
     Transport = maps:get(transport, Opts, ?DEFAULT_TRANSPORT),
     Headers = maps:get(headers, Opts, []),
-    Protocol = maps:get(protocol, Opts, undefined),
+    Protocols = maps:get(protocols, Opts, []),
     Data = #data{
         handler = Handler,
         uri = format_ws_uri(Transport, Domain, Port, Path),
@@ -213,7 +213,7 @@ init([Handler, Opts]) ->
         port = Port,
         path = as_bin(Path),
         headers = Headers,
-        protocol = Protocol,
+        protocols = Protocols,
         ping_timeout = PingTimeout,
         request_timeout = ReqTimeout
     },
@@ -530,7 +530,7 @@ encode_error(Tag, Message)
     end.
 
 connection_start(Data = #data{uri = Uri, domain = Domain, port = Port,
-                              protocol = Protocol},
+                              protocols = Protocols},
                  TransportSpec) ->
     BaseWsOpts = #{silence_pings => false},
     BaseGunOpts = #{protocols => [http], retry => 0},
@@ -539,9 +539,9 @@ connection_start(Data = #data{uri = Uri, domain = Domain, port = Port,
         tls -> BaseGunOpts#{transport => tls};
         {tls, Opts} -> BaseGunOpts#{transport => tls, tls_opts => Opts}
     end,
-    WsOpts = case Protocol of
-        undefined -> BaseWsOpts;
-        Proto -> BaseWsOpts#{protocols => [{Proto, gun_ws_h}]}
+    WsOpts = case Protocols of
+        [] -> BaseWsOpts;
+        [_|_] = Ps -> BaseWsOpts#{protocols => [{P, gun_ws_h} || P <- Ps]}
     end,
     GunOpts = TransGunOpts#{ws_opts => WsOpts},
     ?JARL_DEBUG("Connecting to ~s", [Uri],

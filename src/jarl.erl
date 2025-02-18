@@ -22,7 +22,7 @@
     ping_timeout => infinity | pos_integer(),
     request_timeout => infinity | pos_integer(),
     headers => [{binary(), iodata()}],
-    protocol => binary()
+    protocols => [binary()]
 }.
 -type jarl_error_reason() :: not_connected | timeout | closed.
 
