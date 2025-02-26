@@ -551,7 +551,8 @@ connection_start(Data = #data{uri = Uri, domain = Domain, port = Port,
     end,
     GunOpts = TransGunOpts#{ws_opts => WsOpts},
     ?JARL_DEBUG("Connecting to ~s", [Uri],
-                #{event => connecting, uri => Uri, options => GunOpts}),
+                #{event => connecting, uri => Uri,
+                  options => cleanup_gun_options(GunOpts)}),
     case gun:open(binary_to_list(Domain), Port, GunOpts) of
         {ok, GunPid} ->
             GunRef = monitor(process, GunPid),
@@ -562,6 +563,17 @@ connection_start(Data = #data{uri = Uri, domain = Domain, port = Port,
                           reason => Reason}),
             {error, Reason}
     end.
+
+cleanup_gun_options(Opts = #{tls_opts := Props}) ->
+    Result = lists:foldl(fun(Key, Acc) ->
+        case proplists:is_defined(Key, Acc) of
+            false -> Acc;
+            true -> [{Key, removed} | proplists:delete(Key, Acc)]
+        end
+    end, Props, [cacerts, certs_keys]),
+    Opts#{tls_opts => Result};
+cleanup_gun_options(Opts) ->
+    Opts.
 
 connection_upgrade(Data = #data{path = Path, headers = Headers,
                                 gun_pid = GunPid}) ->
