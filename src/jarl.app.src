@@ -1,6 +1,6 @@
 {application, jarl, [
     {description, "Just Another RPC Library"},
-    {vsn, "1.0.0"},
+    {vsn, "1.0.1"},
     {registered, []},
     {applications, [
         kernel,
