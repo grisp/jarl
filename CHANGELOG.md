@@ -8,6 +8,9 @@ and this project adheres to
 
 ## [Unreleased]
 
+Lower the general logging level and prevent crash logs by using shutdown error
+reasons.
+
 ## [1.0.1] - 2025-02-26
 
 Cleanup TLS options in debug log
