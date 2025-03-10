@@ -397,7 +397,7 @@ handle_common(info, {'DOWN', _, process, Pid, Reason}, StateName,
         {shutdown, R} -> {shutdown, R};
         R -> {shutdown, R}
     end,
-    {stop, SafeReason, Data};
+    {stop, SafeReason, connection_closed(Data, SafeReason)};
 handle_common(info, {gun_up, Pid, http} = Info, StateName,
               #data{gun_pid = GunPid}) ->
     ?JARL_DEBUG("Ignoring unexpected gun_up message"
