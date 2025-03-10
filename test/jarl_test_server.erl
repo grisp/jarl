@@ -21,6 +21,7 @@
 -export([receive_jsonrpc_result/0]).
 -export([receive_jsonrpc_error/0]).
 -export([send_text/1]).
+-export([send_frame/1]).
 -export([send_jsonrpc_notification/2]).
 -export([send_jsonrpc_request/3]).
 -export([send_jsonrpc_result/2]).
@@ -145,7 +146,10 @@ check_jsonrpc(Msg) ->
     end.
 
 send_text(Msg) ->
-    ?MODULE ! {?FUNCTION_NAME, Msg}.
+    send_frame({text, Msg}).
+
+send_frame(Frame) ->
+    ?MODULE ! {?FUNCTION_NAME, Frame}.
 
 send_jsonrpc_notification(Method, Params) ->
     Map = #{jsonrpc => <<"2.0">>,
@@ -216,8 +220,8 @@ websocket_info({listen, Pid}, State) ->
 websocket_info(send_ping, State) ->
     schedule_ping(State),
     {[ping], State};
-websocket_info({send_text, Msg}, State) ->
-    {[{text, Msg}], State};
+websocket_info({send_frame, Frame}, State) ->
+    {[Frame], State};
 websocket_info(close_websocket, State) ->
     {[close], State};
 websocket_info(Info, State) ->

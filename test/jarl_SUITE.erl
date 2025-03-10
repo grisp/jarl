@@ -10,6 +10,7 @@
 -import(jarl_test_async, [async_get_result/1]).
 
 -import(jarl_test_server, [flush/0]).
+-import(jarl_test_server, [send_frame/1]).
 -import(jarl_test_server, [send_text/1]).
 -import(jarl_test_server, [send_jsonrpc_request/3]).
 -import(jarl_test_server, [send_jsonrpc_notification/2]).
@@ -120,9 +121,9 @@ init_per_testcase(_TestCase, Config) ->
     [{conn, Conn}, {apps, Apps} | Config].
 
 end_per_testcase(TestCase, Config)
-when TestCase =:= server_crash_test ->
-  ?assertEqual([], flush()),
-  Config;
+  when TestCase =:= server_crash_test ->
+    ?assertEqual([], flush()),
+    Config;
 end_per_testcase(TestCase, Config)
   when TestCase =:= connection_error_test;
        TestCase =:= call_while_connecting_test;
@@ -313,8 +314,9 @@ connection_error_test(_Config) ->
         domain => localhost, port => 3030, path => <<"/jarl/ws">>,
         transport => {tls, bad}})),
     % Test the connection cannot be established
-    {ok, Conn} = jarl:start_link(self(), connect_options(#{domain => dummy})),
-    receive {'EXIT', Conn, _} -> ok after 1000 -> ?assert(false, "Connection did not crash") end,
+    {ok, Conn2} = jarl:start_link(self(), connect_options(#{domain => dummy})),
+    receive {'EXIT', Conn2, {shutdown, nxdomain}} -> ok
+    after 1000 -> ?assert(false, "Connection did not crash") end,
     ok.
 
 ping_timeout_test(_Config) ->
@@ -325,18 +327,20 @@ ping_timeout_test(_Config) ->
     Async = async_eval(fun() -> jarl:request(Conn, [sync_req], #{}) end),
     _ = ?receiveRequest(<<"async_req">>, _),
     _ = ?receiveRequest(<<"sync_req">>, _),
-    receive {'EXIT', Conn, _} -> ok after 1000 -> ?assert(false, "Connection did not crash") end,
+    receive {'EXIT', Conn, {shutdown, ping_timeout}} -> ok
+    after 1000 -> ?assert(false, "Connection did not crash") end,
     % A message for the asynchronous request must be sent
-    ?assertConnJarlError(Conn, closed, some_ctx),
+    ?assertConnJarlError(Conn, ping_timeout, some_ctx),
     % The synchronous request should return
-    ?assertEqual({jarl_error, closed}, async_get_result(Async)),
+    ?assertEqual({jarl_error, ping_timeout}, async_get_result(Async)),
     ok.
 
 ws_upgrade_error_test(_Config) ->
     process_flag(trap_exit, true), % To not die because the connection crashes
     Headers = [{<<"Test-Upgrade-Error">>, <<"test_driven_upgrade_error">>}],
     {ok, Conn} = jarl:start_link(self(), connect_options(#{headers => Headers})),
-    receive {'EXIT', Conn, _} -> ok after 1000 -> ?assert(false, "Connection did not crash") end,
+    receive {'EXIT', Conn, {shutdown, ws_upgrade_failed}} -> ok
+    after 1000 -> ?assert(false, "Connection did not crash") end,
     ok.
 
 server_crash_test(Config) ->
@@ -347,11 +351,46 @@ server_crash_test(Config) ->
     _ = ?receiveRequest(<<"async_req">>, _),
     _ = ?receiveRequest(<<"sync_req">>, _),
     jarl_test_server:stop(proplists:get_value(apps, Config)),
-    receive {'EXIT', Conn, _} -> ok after 1000 -> ?assert(false, "Connection did not crash") end,
+    receive {'EXIT', Conn, {shutdown, closed}} -> ok
+    after 1000 -> ?assert(false, "Connection did not crash") end,
     % A message for the asynchronous request must be sent
     ?assertConnJarlError(Conn, closed, some_ctx),
     % The synchronous request should return
     ?assertEqual({jarl_error, closed}, async_get_result(Async)),
+    ok.
+
+server_close_test(Config) ->
+    process_flag(trap_exit, true), % To not die because the connection crashes
+    Conn = proplists:get_value(conn, Config),
+    jarl:request(Conn, async_req, #{}, some_ctx),
+    Async = async_eval(fun() -> jarl:request(Conn, [sync_req], #{}) end),
+    _ = ?receiveRequest(<<"async_req">>, _),
+    _ = ?receiveRequest(<<"sync_req">>, _),
+    send_frame(close),
+    receive {'EXIT', Conn, {shutdown, closed}} -> ok
+    after 1000 -> ?assert(false, "Connection did not crash") end,
+    % A message for the asynchronous request must be sent
+    ?assertConnJarlError(Conn, closed, some_ctx),
+    % The synchronous request should return
+    ?assertEqual({jarl_error, closed}, async_get_result(Async)),
+    ok.
+
+server_close_ex_test(Config) ->
+    process_flag(trap_exit, true), % To not die because the connection crashes
+    Conn = proplists:get_value(conn, Config),
+    jarl:request(Conn, async_req, #{}, some_ctx),
+    Async = async_eval(fun() -> jarl:request(Conn, [sync_req], #{}) end),
+    _ = ?receiveRequest(<<"async_req">>, _),
+    _ = ?receiveRequest(<<"sync_req">>, _),
+    send_frame({close, 1002, <<"Custom Protocol Error">>}),
+    receive {'EXIT', Conn, {shutdown, {closed, 1002, <<"Custom Protocol Error">>}}} -> ok
+    after 1000 -> ?assert(false, "Connection did not crash") end,
+    % A message for the asynchronous request must be sent
+    ?assertConnJarlError(Conn, {closed, 1002, <<"Custom Protocol Error">>},
+                         some_ctx),
+    % The synchronous request should return
+    ?assertEqual({jarl_error, {closed, 1002, <<"Custom Protocol Error">>}},
+                  async_get_result(Async)),
     ok.
 
 unexpected_jsonrpc_messages_test(Config) ->
@@ -409,11 +448,12 @@ unexpected_cast_test(Config) ->
     _ = ?receiveRequest(<<"async_req">>, _),
     _ = ?receiveRequest(<<"sync_req">>, _),
     gen_statem:cast(Conn, unexpected_cast_from_test),
-    receive {'EXIT', Conn, _} -> ok after 1000 -> ?assert(false, "Connection did not crash") end,
+    receive {'EXIT', Conn, {unexpected_cast, unexpected_cast_from_test}} -> ok
+    after 1000 -> ?assert(false, "Connection did not crash") end,
     % A message for the asynchronous request must be sent
-    ?assertConnJarlError(Conn, closed, some_ctx),
+    ?assertConnJarlError(Conn, {unexpected_cast, unexpected_cast_from_test}, some_ctx),
     % The synchronous request should return
-    ?assertEqual({jarl_error, closed}, async_get_result(Async)),
+    ?assertEqual({jarl_error, {unexpected_cast, unexpected_cast_from_test}}, async_get_result(Async)),
     ok.
 
 unexpected_call_test(Config) ->
@@ -424,11 +464,12 @@ unexpected_call_test(Config) ->
     _ = ?receiveRequest(<<"async_req">>, _),
     _ = ?receiveRequest(<<"sync_req">>, _),
     Async2 = async_eval(fun() -> gen_statem:call(Conn, unexpected_call_from_test) end),
-    receive {'EXIT', Conn, _} -> ok after 1000 -> ?assert(false, "Connection did not crash") end,
+    receive {'EXIT', Conn, {unexpected_call, unexpected_call_from_test}} -> ok
+    after 1000 -> ?assert(false, "Connection did not crash") end,
     % A message for the asynchronous request must be sent
-    ?assertConnJarlError(Conn, closed, some_ctx),
+    ?assertConnJarlError(Conn, {unexpected_call, unexpected_call_from_test}, some_ctx),
     % The synchronous request should return
-    ?assertEqual({jarl_error, closed}, async_get_result(Async1)),
+    ?assertEqual({jarl_error, {unexpected_call, unexpected_call_from_test}}, async_get_result(Async1)),
     ?assertEqual({error, unexpected_call}, async_get_result(Async2)),
     ok.
     

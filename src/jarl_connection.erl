@@ -224,8 +224,12 @@ init([Handler, Opts]) ->
         {error, Reason} -> {stop, Reason}
     end.
 
-terminate(_Reason, _State, Data) ->
-    connection_close(Data),
+terminate(Reason, _State, Data) ->
+    CloseReason = case Reason of
+        {shutdown, R} -> R;
+        R -> R
+    end,
+    connection_close(Data, CloseReason),
     persistent_term:erase({?MODULE, self(), tags}),
     persistent_term:erase({?MODULE, self(), codes}),
     ok.
@@ -234,38 +238,38 @@ terminate(_Reason, _State, Data) ->
 %--- Behaviour gen_statem State Callback Functions -----------------------------
 
 connecting({call, From}, {request, Method, _Params}, _Data) ->
-    ?JARL_INFO("Request ~s performed while connecting",
-               [format_method(Method)],
-               #{event => rpc_request_error, method => Method,
-                 reason => not_connected}),
+    ?JARL_DEBUG("Request ~s performed while connecting",
+                [format_method(Method)],
+                #{event => rpc_request_error, method => Method,
+                  reason => not_connected}),
     {keep_state_and_data, [{reply, From, {jarl_error, not_connected}}]};
 connecting({call, From}, {request, Method, _Params, ReqCtx},
             #data{handler = Handler}) ->
-    ?JARL_INFO("Request ~s initiated while connecting",
-               [format_method(Method)],
-               #{event => rpc_request_error, method => Method,
-                 reason => not_connected}),
+    ?JARL_DEBUG("Request ~s initiated while connecting",
+                [format_method(Method)],
+                #{event => rpc_request_error, method => Method,
+                  reason => not_connected}),
     % Notify the handler anyway so it doesn't have to make a special case
     Handler ! {jarl, self(), {jarl_error, not_connected, ReqCtx}},
     {keep_state_and_data, [{reply, From, {jarl_error, not_connected}}]};
 connecting({call, From}, {notify, Method, _Params}, _Data) ->
-    ?JARL_INFO("Notification ~s posted while connecting",
-               [format_method(Method)],
-               #{event => rpc_notify_error, method => Method,
-                 reason => not_connected}),
+    ?JARL_DEBUG("Notification ~s posted while connecting",
+                [format_method(Method)],
+                #{event => rpc_notify_error, method => Method,
+                  reason => not_connected}),
     {keep_state_and_data, [{reply, From, {jarl_error, not_connected}}]};
 connecting({call, From}, {reply, _Result, ReqRef}, Data) ->
-    ?JARL_INFO("Result response to ~s posted while connecting",
-               [inbound_req_tag(Data, ReqRef)],
-               #{event => rpc_reply_error, ref => ReqRef,
-                 method => inbound_method(Data, ReqRef),
+    ?JARL_DEBUG("Result response to ~s posted while connecting",
+                [inbound_req_tag(Data, ReqRef)],
+                #{event => rpc_reply_error, ref => ReqRef,
+                  method => inbound_method(Data, ReqRef),
                  reason => not_connected}),
     {keep_state_and_data, [{reply, From, {jarl_error, not_connected}}]};
 connecting({call, From}, {reply, Code, _Message, _ErData, ReqRef}, Data) ->
-    ?JARL_INFO("Error response ~w to ~s posted while connecting",
-                [Code, inbound_req_tag(Data, ReqRef)],
-                #{event => rpc_error_error, code => Code, ref => ReqRef,
-                  reason => not_connected}),
+    ?JARL_DEBUG("Error response ~w to ~s posted while connecting",
+                 [Code, inbound_req_tag(Data, ReqRef)],
+                 #{event => rpc_error_error, code => Code, ref => ReqRef,
+                   reason => not_connected}),
     {keep_state_and_data, [{reply, From, {jarl_error, not_connected}}]};
 connecting(info, {gun_up, GunPid, _}, Data = #data{gun_pid = GunPid}) ->
     ?JARL_DEBUG("Connection to ~s established",
@@ -279,11 +283,11 @@ connecting(info, {gun_upgrade, Pid, Stream, [<<"websocket">>], Headers},
     {next_state, connected, connection_established(Data, Headers)};
 connecting(info, {gun_response, Pid, Stream, _, Status, _Headers},
            Data = #data{gun_pid = Pid, ws_stream = Stream}) ->
-    ?JARL_INFO("Connection to ~s failed to upgrade to websocket: ~p",
-               [Data#data.uri, Status],
-               #{event => ws_upgrade_failed, uri => Data#data.uri,
-                 status => Status}),
-    {stop, ws_upgrade_failed, connection_close(Data)};
+    ?JARL_DEBUG("Connection to ~s failed to upgrade to websocket: ~w",
+                [Data#data.uri, Status],
+                #{event => ws_upgrade_failed, uri => Data#data.uri,
+                  status => Status}),
+    {stop, {shutdown, ws_upgrade_failed}, Data};
 ?HANDLE_COMMON.
 
 connected({call, From}, {request, Method, Params}, Data) ->
@@ -335,66 +339,65 @@ connected(info, {gun_ws, Pid, Stream, {text, Text}},
           Data = #data{gun_pid = Pid, ws_stream = Stream}) ->
     {keep_state, process_text(Data, Text)};
 connected(info, ping_timeout, Data) ->
-    ?JARL_INFO("Connection to ~s timed out", [Data#data.uri],
-               #{event => ws_ping_timeout, uri => Data#data.uri}),
-    {stop, normal, connection_close(Data)};
+    ?JARL_DEBUG("Connection to ~s timed out", [Data#data.uri],
+                #{event => ws_ping_timeout, uri => Data#data.uri}),
+    {stop, {shutdown, ping_timeout}, Data};
 connected(info, {outbound_timeout, ReqRef}, Data) ->
-    ?JARL_INFO("Request ~s to ~s timed out",
-               [outbound_req_tag(Data, ReqRef), Data#data.uri],
-               #{event => rpc_request_timeout_error, uri => Data#data.uri,
-                 ref => ReqRef, method => outbound_method(Data, ReqRef)}),
+    ?JARL_DEBUG("Request ~s to ~s timed out",
+                [outbound_req_tag(Data, ReqRef), Data#data.uri],
+                #{event => rpc_request_timeout_error, uri => Data#data.uri,
+                  ref => ReqRef, method => outbound_method(Data, ReqRef)}),
     {keep_state, outbound_timeout(Data, ReqRef)};
 ?HANDLE_COMMON.
 
-handle_common({call, From}, disconnect, _StateName, Data) ->
-    try connection_close(Data) of
-        _Data2 -> {stop_and_reply, normal, [{reply, From, {ok, ok}}]}
-    catch
-        C:R:S -> {stop_and_reply, R, [{reply, From, {exception, C, R, S}}]}
-    end;
+handle_common({call, From}, disconnect, _StateName, _Data) ->
+    {stop_and_reply, {shutdown, disconnected}, [{reply, From, {ok, ok}}]};
 handle_common(info, {gun_ws, Pid, Stream, ping}, _StateName,
               Data = #data{gun_pid = Pid, ws_stream = Stream}) ->
     {keep_state, schedule_ping_timeout(Data)};
 handle_common(info, {gun_ws, Pid, Stream, close}, StateName,
               Data = #data{gun_pid = Pid, ws_stream = Stream}) ->
-    ?JARL_INFO("Connection to ~s closed without code", [Data#data.uri],
-               #{event => ws_stream_closed, uri => Data#data.uri,
-                 state => StateName}),
-    {stop, normal, connection_closed(Data, closed)};
+    ?JARL_DEBUG("Connection to ~s closed by peer without code", [Data#data.uri],
+                #{event => ws_closed, uri => Data#data.uri,
+                  state => StateName}),
+    {stop, {shutdown, closed}, Data};
 handle_common(info, {gun_ws, Pid, Stream, {close, Code, Message}}, StateName,
               Data = #data{gun_pid = Pid, ws_stream = Stream}) ->
-    ?JARL_INFO("Connection to ~s closed: ~s (~w)",
-               [Data#data.uri, Message, Code],
-               #{event => ws_stream_closed, uri => Data#data.uri,
+    ?JARL_DEBUG("Connection to ~s closed by peer: ~s (~w)",
+                [Data#data.uri, Message, Code],
+                #{event => ws_stream_closed, uri => Data#data.uri,
                  code => Code, reason => Message, state => StateName}),
-    {stop, normal, connection_closed(Data, closed)};
-handle_common(info, {gun_error, Pid, _Stream, {closed, normal}}, StateName,
-              Data = #data{gun_pid = Pid}) ->
-    ?JARL_INFO("Connection to ~s got closed normaly", [Data#data.uri],
-               #{event => ws_closed, uri => Data#data.uri,
-                 state => StateName}),
-    {stop, normal, connection_close(Data)};
+    {stop, {shutdown, {closed, Code, Message}}, Data};
 handle_common(info, {gun_error, Pid, _Stream, Reason}, StateName,
               Data = #data{gun_pid = Pid}) ->
-    ?JARL_INFO("Connection to ~s got an error: ~p",
-               [Data#data.uri, Reason],
-               #{event => ws_error, uri => Data#data.uri,
+    ?JARL_DEBUG("Connection to ~s got an error: ~w",
+                [Data#data.uri, Reason],
+                #{event => ws_error, uri => Data#data.uri,
                  reason => Reason, state => StateName}),
-    {stop, Reason, connection_close(Data)};
-handle_common(info, {gun_down, Pid, ws, Reason, [Stream]}, StateName,
-              Data = #data{gun_pid = Pid, ws_stream = Stream})
-  when Reason =:= closed; Reason =:= {error, closed}; Reason =:= normal ->
-    ?JARL_INFO("Connection to ~s was closed by the server", [Data#data.uri],
-               #{event => ws_closed_by_peer, uri => Data#data.uri,
-                 reason => closed, state => StateName}),
-    {stop, normal, connection_close(Data)};
+    keep_state_and_data;
+handle_common(info, {gun_down, Pid, ws, Reason, _KilledStreams},
+              StateName, Data = #data{gun_pid = Pid}) ->
+    ?JARL_DEBUG("Connection to ~s down: ~w", [Data#data.uri, Reason],
+                #{event => ws_down, uri => Data#data.uri,
+                  reason => Reason, state => StateName}),
+    SafeReason = case Reason of
+        normal -> normal;
+        {shutdown, R} -> {shutdown, R};
+        R -> {shutdown, R}
+    end,
+    {stop, SafeReason, Data};
 handle_common(info, {'DOWN', _, process, Pid, Reason}, StateName,
               Data = #data{gun_pid = Pid}) ->
-    ?JARL_INFO("gun process of the connection to ~s crashed: ~p",
-               [Data#data.uri, Reason],
-               #{event => ws_gun_crash, uri => Data#data.uri,
-                 reason => Reason, state => StateName}),
-    {stop, Reason, connection_closed(Data, closed)};
+    ?JARL_DEBUG("Gun process for the connection to ~s terminated: ~w",
+                [Data#data.uri, Reason],
+                #{event => ws_exit, uri => Data#data.uri,
+                  reason => Reason, state => StateName}),
+    SafeReason = case Reason of
+        normal -> normal;
+        {shutdown, R} -> {shutdown, R};
+        R -> {shutdown, R}
+    end,
+    {stop, SafeReason, Data};
 handle_common(info, {gun_up, Pid, http} = Info, StateName,
               #data{gun_pid = GunPid}) ->
     ?JARL_DEBUG("Ignoring unexpected gun_up message"
@@ -415,7 +418,7 @@ handle_common(cast, Cast, StateName, _Data) ->
                   state => StateName}),
     {stop, Reason};
 handle_common(info, Info, StateName, _Data) ->
-    ?JARL_WARN("Unexpected info message to ~s: ~p",
+    ?JARL_INFO("Unexpected info message to ~s: ~p",
                [?MODULE, Info],
                #{event => unexpected_info, message => Info,
                  state => StateName}),
@@ -558,7 +561,7 @@ connection_start(Data = #data{uri = Uri, domain = Domain, port = Port,
             GunRef = monitor(process, GunPid),
             {ok, Data#data{gun_pid = GunPid, gun_ref = GunRef}};
         {error, Reason} ->
-            ?JARL_ERROR("Failed to open connection to ~s: ~p", [Uri, Reason],
+            ?JARL_DEBUG("Failed to open connection to ~s: ~p", [Uri, Reason],
                         #{event => connection_failure, uri => Uri,
                           reason => Reason}),
             {error, Reason}
@@ -584,15 +587,13 @@ connection_established(Data = #data{handler = Handler}, Headers) ->
     Handler ! {jarl, self(), {connected, Headers}},
     schedule_ping_timeout(Data).
 
-connection_close(Data = #data{gun_pid = GunPid, gun_ref = GunRef})
+connection_close(Data = #data{gun_pid = GunPid, gun_ref = GunRef}, Reason)
   when GunPid =/= undefined, GunRef =/= undefined  ->
     demonitor(GunRef),
     gun:shutdown(GunPid),
-    Data2 = cancel_ping_timeout(Data),
-    Data3 = requests_error(Data2, closed),
-    Data3#data{gun_pid = undefined, gun_ref = undefined, ws_stream = undefined};
-connection_close(Data) ->
-    requests_error(Data, closed).
+    connection_closed(Data, Reason);
+connection_close(Data, Reason) ->
+    connection_closed(Data, Reason).
 
 connection_closed(Data, Reason) ->
     Data2 = cancel_ping_timeout(Data),
@@ -723,7 +724,7 @@ inbound_response(Data = #data{batches = BatchMap, inbound = ReqMap},
                  Message, ReqRef) ->
     case maps:take(ReqRef, ReqMap) of
         error ->
-            ?JARL_ERROR("Ask to send a response to the unknown request ~p",
+            ?JARL_DEBUG("Ask to send a response to the unknown request ~p",
                         [ReqRef],
                         #{event => internal_error, ref => ReqRef,
                           reason => unknown_request}),
@@ -775,9 +776,9 @@ outbound_del(Data = #data{outbound = ReqMap}, ReqRef) ->
 outbound_timeout(Data = #data{handler = Handler}, ReqRef) ->
     case outbound_del(Data, ReqRef) of
         {error, not_found} ->
-            ?JARL_WARN("Timeout for unknown request ~p", [ReqRef],
-                       #{event => internal_error, ref => ReqRef,
-                         reason => unknown_request}),
+            ?JARL_DEBUG("Timeout for unknown request ~p", [ReqRef],
+                        #{event => internal_error, ref => ReqRef,
+                          reason => unknown_request}),
             Data;
         {ok, _Method, undefined, Ctx, Data2} ->
             Handler ! {jarl, self(), {jarl_error, timeout, Ctx}},
