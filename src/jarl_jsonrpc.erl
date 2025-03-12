@@ -159,6 +159,7 @@ term_to_json(Term) ->
 
 postprocess(null) -> undefined;
 postprocess(Integer) when is_integer(Integer) -> Integer;
+postprocess(Boolean) when is_boolean(Boolean) -> Boolean;
 postprocess(Float) when is_float(Float) -> Float;
 postprocess(Binary) when is_binary(Binary) -> Binary;
 postprocess(List) when is_list(List) ->

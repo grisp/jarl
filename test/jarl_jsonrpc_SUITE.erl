@@ -14,6 +14,7 @@ all() -> [
     batch,
     result,
     null_values,
+    preprocess_values,
     error_data,
     omitted_params,
     encoding_error
@@ -114,6 +115,17 @@ null_values(_) ->
                            <<"\"foo\":null">>,
                            <<"\"value\":null">>],
                           Json2)).
+
+preprocess_values(_) ->
+    BasicList = [1, 3.14, true, <<"false">>, undefined, [], #{}],
+    BasicMap = #{int => 1, float => 3.14, bool => false,
+                 undef => undefined, empty_list => [],
+                 empty_map => #{}},
+    Params = BasicMap#{deep_list => [BasicList, BasicMap | BasicList],
+                       deep_obj => BasicMap},
+    Term = {notification, <<"test_preprocess">>, Params},
+    Json = <<"{\"jsonrpc\":\"2.0\",\"method\":\"test_preprocess\",\"params\":{\"bool\":false,\"deep_list\":[[1,3.14,true,\"false\",null,[],{}],{\"bool\":false,\"empty_list\":[],\"empty_map\":{},\"float\":3.14,\"int\":1,\"undef\":null},1,3.14,true,\"false\",null,[],{}],\"deep_obj\":{\"bool\":false,\"empty_list\":[],\"empty_map\":{},\"float\":3.14,\"int\":1,\"undef\":null},\"empty_list\":[],\"empty_map\":{},\"float\":3.14,\"int\":1,\"undef\":null}}">>,
+    ?assertEqual(Term, jarl_jsonrpc:decode(Json)).
 
 error_data(_) ->
     Term = {error, 123, <<"FooBar">>, <<"Some extra data">>, 42},
