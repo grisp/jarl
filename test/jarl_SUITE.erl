@@ -188,6 +188,12 @@ basic_server_request_test(Config) ->
     ?assertConnRequest(Conn, [bar], _, 6),
     jarl:reply(Conn, -42, undefined, undefined, 6),
     ?receiveError(-42, null, 6),
+    send_jsonrpc_request(<<"baz">>, #{}, 7),
+    ?assertConnRequest(Conn, [baz], _, 7),
+    jarl:reply(Conn, internal_error, undefined, #{message => <<"Upsi">>}, 7),
+    ?assertMatch(#{error := #{code := -32603, message := <<"Internal error">>,
+                              data := #{message := <<"Upsi">>}},
+                   id := 7}, jarl_test_server:receive_jsonrpc_error()),
     ok.
 
 basic_client_synchronous_request_test(Config) ->

@@ -128,15 +128,33 @@ preprocess_values(_) ->
     ?assertEqual(Term, jarl_jsonrpc:decode(Json)).
 
 error_data(_) ->
-    Term = {error, 123, <<"FooBar">>, <<"Some extra data">>, 42},
-    Json = <<"{\"id\":42,\"jsonrpc\":\"2.0\",\"error\":{\"code\":123,\"message\":\"FooBar\",\"data\":\"Some extra data\"}}">>,
-    ?assertMatch(Term, jarl_jsonrpc:decode(Json)),
-    Json2 = jarl_jsonrpc:encode(Term),
+    TermMap = {error, 123, <<"FooBar">>, #{details => <<"Some extra data">>}, 42},
+    JsonMap = <<"{\"id\":42,\"jsonrpc\":\"2.0\",\"error\":{\"code\":123,\"message\":\"FooBar\",\"data\":{\"details\":\"Some extra data\"}}}">>,
+    ?assertMatch(TermMap, jarl_jsonrpc:decode(JsonMap)),
+    Json2 = jarl_jsonrpc:encode(TermMap),
     ?assert(jsonrpc_check([<<"\"error\":{">>,
                            <<"\"id\":42">>,
                            <<"\"code\":123">>,
                            <<"\"message\":\"FooBar\"">>,
-                           <<"\"data\":\"Some extra data\"">>], Json2)).
+                           <<"\"data\":{\"details\":\"Some extra data\"}">>], Json2)),
+    TermList = {error, 456, <<"ListData">>, [1, true, #{k => <<"v">>}], 43},
+    Json3 = jarl_jsonrpc:encode(TermList),
+    ?assert(jsonrpc_check([<<"\"id\":43">>,
+                           <<"\"code\":456">>,
+                           <<"\"message\":\"ListData\"">>,
+                           <<"\"data\":[1,true,{\"k\":\"v\"}]">>], Json3)),
+    TermBin = {error, 789, <<"BinData">>, <<"primitive">>, 44},
+    Json4 = jarl_jsonrpc:encode(TermBin),
+    ?assert(jsonrpc_check([<<"\"id\":44">>,
+                           <<"\"code\":789">>,
+                           <<"\"message\":\"BinData\"">>,
+                           <<"\"data\":\"primitive\"">>], Json4)),
+    TermPrimitive = {error, 790, <<"PrimitiveData">>, 123, 45},
+    Json5 = jarl_jsonrpc:encode(TermPrimitive),
+    ?assert(jsonrpc_check([<<"\"id\":45">>,
+                           <<"\"code\":790">>,
+                           <<"\"message\":\"PrimitiveData\"">>,
+                           <<"\"data\":123">>], Json5)).
 
 omitted_params(_) ->
     Term1 = {request, <<"foo">>, undefined, 42},
@@ -167,7 +185,7 @@ encoding_error(_) ->
     ?assertException(error, {badarg, _}, jarl_jsonrpc:encode({result, <<"ok">>, undefined})),
     ?assertException(error, {badarg, _}, jarl_jsonrpc:encode({error, atom, undefined, undefined, 42})),
     ?assertException(error, {badarg, _}, jarl_jsonrpc:encode({error, 123, 456, undefined, 42})),
-    ?assertException(error, {badarg, _}, jarl_jsonrpc:encode({error, 123, undefined, 123, 42})),
+    ?assertException(error, {badarg, _}, jarl_jsonrpc:encode({error, 123, undefined, {'not', json}, 42})),
     ?assertException(error, {badarg, _}, jarl_jsonrpc:encode({error, 123, undefined, undefined, atom})),
     ok.
 
