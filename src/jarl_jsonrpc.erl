@@ -31,6 +31,11 @@
 -define(is_id(ID),
     (is_binary(ID) orelse is_integer(ID))
 ).
+-define(is_json_value(Value),
+    (is_atom(Value) orelse is_boolean(Value) orelse is_integer(Value)
+     orelse is_float(Value) orelse is_binary(Value) orelse is_list(Value)
+     orelse is_map(Value))
+).
 
 
 %--- API -----------------------------------------------------------------------
@@ -142,7 +147,7 @@ pack({ErrorTag, Code, Message, undefined, ID})
 pack({ErrorTag, Code, Message, Data, ID})
   when ErrorTag =:= error orelse ErrorTag =:= decoding_error, is_integer(Code),
        Message =:= undefined orelse is_binary(Message), ?is_id(ID),
-       is_binary(Data) ->
+       ?is_json_value(Data) ->
     #{?V, error => #{code => Code, message => Message, data => Data}, id => ID};
 pack(Message) ->
     erlang:error({badarg, Message}).
