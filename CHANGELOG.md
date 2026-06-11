@@ -8,6 +8,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-06-11
+
+### Fixed
+
+- Fix encoding of structured error data.
+
 ## [1.1.0] - 2025-03-12
 
 ### Changed
@@ -30,7 +36,8 @@ Jsonrpc 2.0 connection handling:
 - jsonrpc 2.0 codec
 
 
-[Unreleased]: https://github.com/grisp/jarl/compare/1.1.0...HEAD
+[Unreleased]: https://github.com/grisp/jarl/compare/1.1.1...HEAD
+[1.1.1]: https://github.com/grisp/jarl/compare/1.1.0...1.1.1
 [1.1.0]: https://github.com/grisp/jarl/compare/1.0.1...1.1.0
 [1.0.1]: https://github.com/grisp/jarl/compare/1.0.0...1.0.1
 [1.0.0]: https://github.com/grisp/jarl/compare/a89954b6be9c0e929a168f2fb7d67dafaae1f349...1.0.0
