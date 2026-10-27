@@ -8,6 +8,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-10-27
+
+### Fixed
+
+- Update Gun and Cowlib to patched releases.
+
 ## [1.1.1] - 2026-06-11
 
 ### Fixed
@@ -36,7 +42,8 @@ Jsonrpc 2.0 connection handling:
 - jsonrpc 2.0 codec
 
 
-[Unreleased]: https://github.com/grisp/jarl/compare/1.1.1...HEAD
+[Unreleased]: https://github.com/grisp/jarl/compare/1.1.2...HEAD
+[1.1.2]: https://github.com/grisp/jarl/compare/1.1.1...1.1.2
 [1.1.1]: https://github.com/grisp/jarl/compare/1.1.0...1.1.1
 [1.1.0]: https://github.com/grisp/jarl/compare/1.0.1...1.1.0
 [1.0.1]: https://github.com/grisp/jarl/compare/1.0.0...1.0.1
