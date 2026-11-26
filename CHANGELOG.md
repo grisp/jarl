@@ -8,6 +8,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-11-26
+
+### Added
+
+- Add the Jarl release workflow (#7)
+
+
+### Changed
+
+- Update Jarl HTTP dependencies (#6)
+
 ## [1.1.2] - 2026-10-27
 
 ### Fixed
@@ -42,7 +53,8 @@ Jsonrpc 2.0 connection handling:
 - jsonrpc 2.0 codec
 
 
-[Unreleased]: https://github.com/grisp/jarl/compare/1.1.2...HEAD
+[Unreleased]: https://github.com/grisp/jarl/compare/1.1.3...HEAD
+[1.1.3]: https://github.com/grisp/jarl/compare/1.1.2...1.1.3
 [1.1.2]: https://github.com/grisp/jarl/compare/1.1.1...1.1.2
 [1.1.1]: https://github.com/grisp/jarl/compare/1.1.0...1.1.1
 [1.1.0]: https://github.com/grisp/jarl/compare/1.0.1...1.1.0
