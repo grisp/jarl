@@ -1,6 +1,5 @@
 {application, jarl, [
     {description, "Just Another RPC Library"},
-    %% Rebar3 uses the Git release tag to set the package version.
     {vsn, semver},
     {registered, []},
     {applications, [
